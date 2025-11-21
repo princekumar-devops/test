@@ -1,0 +1,100 @@
+name: PostgreSQL Data Archival to S3
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_host:
+        description: 'Database Host (e.g., acko-health-services-uat.cpbwfp2vkm7a.ap-south-1.rds.amazonaws.com)'
+        required: true
+        type: string
+      db_name:
+        description: 'Database Name'
+        required: true
+        type: string
+      db_user:
+        description: 'Database User'
+        required: true
+        type: string
+      db_pass:
+        description: 'Database Password'
+        required: true
+        type: string
+      target_table:
+        description: 'Target Table Name (e.g., act_ge_bytearray)'
+        required: true
+        type: string
+      date_column:
+        description: 'Date Column Name (e.g., create_time_)'
+        required: true
+        type: string
+      start_date:
+        description: 'Start Date (YYYY-MM-DD format, e.g., 2025-05-01)'
+        required: true
+        type: string
+      end_date:
+        description: 'End Date (YYYY-MM-DD format, e.g., 2025-05-05)'
+        required: true
+        type: string
+      s3_bucket:
+        description: 'S3 Bucket Name (e.g., data-archival-pocc)'
+        required: true
+        type: string
+        default: 'data-archival-pocc'
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        type: string
+        default: 'ap-south-1'
+
+jobs:
+  archive-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'arch/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r arch/requirements.txt
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Run PostgreSQL Archival Script
+        env:
+          DB_HOST: ${{ inputs.db_host }}
+          DB_NAME: ${{ inputs.db_name }}
+          DB_USER: ${{ inputs.db_user }}
+          DB_PASS: ${{ inputs.db_pass }}
+          TARGET_TABLE: ${{ inputs.target_table }}
+          DATE_COLUMN: ${{ inputs.date_column }}
+          CONFIG_START_DATE: ${{ inputs.start_date }}
+          CONFIG_END_DATE: ${{ inputs.end_date }}
+          S3_BUCKET_NAME: ${{ inputs.s3_bucket }}
+          AWS_REGION: ${{ inputs.aws_region }}
+        run: |
+          cd arch
+          python postgres_archival.py
+
+      - name: Upload logs (if any failures)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archival-logs
+          path: |
+            arch/*.log
+          retention-days: 7
+
